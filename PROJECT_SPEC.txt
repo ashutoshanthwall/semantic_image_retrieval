@@ -1,0 +1,1329 @@
+PROJECT TYPE:
+C++ + DSA + AI/ML + Computer Vision + Information Retrieval
+
+PROJECT NAME:
+C++-Based Semantic Image Retrieval System
+
+ALTERNATIVE NAMES:
+Intelligent Image Search Engine
+Semantic Image Search Engine
+
+REFERENCE REPOSITORY:
+CompTech Winter School — image-finder
+https://github.com/comptech-winter-school/image-finder
+
+IMPORTANT:
+The Winter School repository is architectural/reference inspiration,
+NOT something we will blindly copy.
+
+Its important architectural ideas include separating:
+- embedding generation
+- exact/simple retrieval
+- HNSW retrieval
+- search orchestration
+
+Our implementation adapts those ideas into a strongly C++/DSA-oriented
+architecture using Flickr30k.
+
+====================================================================
+1. PROJECT OBJECTIVE
+====================================================================
+
+Build a semantic image retrieval system in which a user can search
+for images using natural-language meaning rather than filenames,
+exact keywords, manually assigned tags, or folder names.
+
+Example:
+"a dog playing in snow"
+
+Core concept:
+
+TEXT QUERY
+    ↓
+CLIP TEXT ENCODER
+    ↓
+QUERY EMBEDDING
+    ↓
+VECTOR SEARCH
+    ↓
+MOST SEMANTICALLY SIMILAR IMAGE VECTORS
+    ↓
+IMAGE IDS
+    ↓
+METADATA LOOKUP
+    ↓
+IMAGE PATHS
+    ↓
+TOP-K RESULTS
+
+Four major technical layers:
+1. AI/ML representation → CLIP
+2. Computer vision/image preprocessing → OpenCV
+3. Data structures/retrieval algorithms → C++
+4. Evaluation → Brute Force vs HNSW
+
+Fundamental architecture:
+
+Flickr30k
+    ↓
+Image preprocessing
+    ↓
+CLIP image embeddings
+    ↓
+Vector storage
+    ↓
+Retrieval indexes
+    ├── Brute Force
+    └── HNSW
+
+Search:
+
+User text query
+    ↓
+CLIP text embedding
+    ↓
+Query vector
+    ↓
+Search engine
+    ↓
+Brute Force OR HNSW
+    ↓
+Top-K image IDs
+    ↓
+Metadata lookup
+    ↓
+Image paths
+    ↓
+Results
+
+====================================================================
+2. DEVELOPMENT PHASES
+====================================================================
+
+PHASE A — OFFLINE INDEXING
+
+Flickr30k
+    ↓
+Dataset ingestion
+    ↓
+Image validation
+    ↓
+OpenCV preprocessing
+    ↓
+CLIP image encoding
+    ↓
+Image embeddings
+    ↓
+Embedding storage
+    ↓
+HNSW index construction
+    ↓
+Persistent index + metadata
+
+PHASE B — ONLINE SEARCH
+
+User query
+    ↓
+Query processing
+    ↓
+CLIP text encoding
+    ↓
+Query embedding
+    ↓
+Search engine
+    ↓
+Brute Force OR HNSW
+    ↓
+Top-K image IDs
+    ↓
+Metadata lookup
+    ↓
+Image paths
+    ↓
+User-facing results
+
+====================================================================
+3. DATASET
+====================================================================
+
+PRIMARY DATASET:
+Flickr30k
+
+Flickr30k is chosen because it contains roughly 31k real-world
+images and multiple natural-language captions for each image.
+
+A commonly distributed version contains approximately:
+31,783 images
+with:
+5 captions per image
+
+Exact number/packaging may differ slightly between distributions;
+the implementation must not assume a particular packaging format.
+
+Important characteristics:
+- realistic photographs
+- approximately 31k images
+- multiple captions per image
+- natural-language descriptions
+- suitable for image-text retrieval
+- manageable project size
+
+PREFERRED PROVENANCE:
+Official Flickr30k source:
+https://shannon.cs.illinois.edu/DenotationGraph/data/index.html
+
+A Hugging Face distribution may also be used when convenient for
+development, provided it contains the actual images and captions
+required by the pipeline.
+
+IMPORTANT:
+Actual image files are required. Caption/annotation metadata alone
+is insufficient because image embeddings must be generated from
+the actual images.
+
+The original dataset must be kept untouched.
+
+Recommended structure:
+
+project/
+├── data/
+│   ├── raw/
+│   │   └── flickr30k/
+│   ├── processed/
+│   └── embeddings/
+├── models/
+├── config/
+├── include/
+├── src/
+├── tests/
+├── evaluation/
+└── scripts/
+
+RAW DATA RULE:
+data/raw/       = original downloaded dataset
+data/processed/ = derived metadata / cleaned information
+data/embeddings/ = generated vector representations
+
+Raw dataset must not be modified directly.
+
+====================================================================
+4. DATASET INGESTION AND METADATA
+====================================================================
+
+Pipeline:
+
+Raw Flickr30k
+    ↓
+DatasetManager
+    ↓
+Directory traversal
+    ↓
+Discover image files
+    ↓
+Validate files
+    ↓
+Associate image IDs
+    ↓
+Read captions
+    ↓
+Build ImageRecord objects
+
+Detect/report:
+- missing files
+- corrupted images
+- duplicate image IDs
+- unsupported file extensions
+- missing captions
+- invalid metadata
+
+Invalid files must be reported rather than silently causing failures.
+
+Conceptual representation:
+
+struct ImageRecord
+{
+    int internalId;
+    std::string imageId;
+    std::string filePath;
+    int width;
+    int height;
+    std::vector<std::string> captions;
+};
+
+Internal IDs are important. Vector search should operate on integer
+IDs rather than repeatedly storing long strings or paths.
+
+Example:
+internalId: 1827
+imageId: 1000092795
+path: data/raw/flickr30k/images/1000092795.jpg
+captions: five captions
+
+Potential structures:
+std::vector<ImageRecord>
+std::unordered_map<int, ImageRecord>
+std::unordered_map<std::string, int>
+
+Hash table usage:
+average-case lookup ≈ O(1)
+
+====================================================================
+5. IMAGE PREPROCESSING AND CLIP
+====================================================================
+
+OpenCV is responsible for:
+- image loading
+- image validation
+- image manipulation
+- preprocessing
+
+OpenCV does NOT perform semantic understanding.
+
+Conceptual pipeline:
+Image
+    ↓
+OpenCV
+    ↓
+Load
+    ↓
+Validate
+    ↓
+Resize/crop as required
+    ↓
+Normalize as required
+    ↓
+CLIP-compatible input
+
+CLIP provides:
+IMAGE → embedding
+TEXT → embedding
+
+The embeddings occupy a shared semantic space.
+
+The exact embedding dimensionality depends on the selected CLIP
+model. Do NOT hard-code a dimension such as 512 throughout the
+codebase. Treat dimension as configuration.
+
+For every valid image:
+image
+  ↓
+preprocessing
+  ↓
+CLIP image encoder
+  ↓
+floating-point vector
+  ↓
+save vector
+
+Embedding generation is OFFLINE.
+
+First execution:
+Flickr30k
+    ↓
+CLIP
+    ↓
+~31k image embeddings
+    ↓
+Save to disk
+
+Future execution:
+Program starts
+    ↓
+Load saved embeddings
+    ↓
+Build/load retrieval index
+    ↓
+Ready
+
+Do NOT regenerate every image embedding whenever search starts.
+
+Recommended conceptual storage:
+data/embeddings/
+    image_embeddings.bin
+    metadata.json
+    manifest.json
+
+Exact formats may change during implementation. The principle is:
+embeddings must be persistent.
+
+EmbeddingStore responsibilities:
+- load embeddings
+- save embeddings
+- access embedding by ID
+- validate dimensions
+- provide iteration over vectors
+- avoid unnecessary copying
+
+Validate:
+- expected dimension
+- NaN values
+- infinite values
+- empty vectors
+- invalid IDs
+
+====================================================================
+6. SIMILARITY
+====================================================================
+
+Use cosine similarity as the primary metric:
+
+              q · x
+cos(q,x) = -----------
+           ||q|| ||x||
+
+If vectors are normalized:
+cos(q,x) = q · x
+
+Maintain consistency between query and stored image embeddings.
+
+Dedicated VectorMath module responsibilities:
+dotProduct()
+norm()
+normalize()
+cosineSimilarity()
+
+====================================================================
+7. COMMON RETRIEVAL INTERFACE
+====================================================================
+
+Define a common abstraction so SearchEngine can work with either
+exact or approximate retrieval.
+
+Conceptually:
+
+class RetrievalIndex
+{
+public:
+    virtual void insert(
+        int id,
+        const std::vector<float>& embedding
+    ) = 0;
+
+    virtual std::vector<int> search(
+        const std::vector<float>& query,
+        int k
+    ) = 0;
+
+    virtual ~RetrievalIndex() = default;
+};
+
+Architecture:
+
+RetrievalIndex
+       |
+  +----+----+
+  |         |
+  ↓         ↓
+Brute      HNSW
+Force      Index
+
+====================================================================
+8. BRUTE-FORCE EXACT RETRIEVAL
+====================================================================
+
+For every query, compare the query against every image vector:
+
+score = cosineSimilarity(query, image)
+
+Brute force is:
+- exact baseline
+- ground truth
+- validation reference
+
+Use Top-K heap rather than fully sorting all scores when appropriate.
+
+Conceptually:
+for each image:
+    score = similarity(query, image)
+    add candidate to heap
+    if heap size > K:
+        remove worst candidate
+
+Approximate complexity:
+O(ND + N log K)
+for N vectors and D-dimensional embeddings, ignoring smaller overheads.
+
+DSA concepts:
+- vectors/arrays
+- linear search
+- heaps
+- priority queues
+- sorting
+- Top-K
+- nearest-neighbor search
+- complexity analysis
+
+====================================================================
+9. HNSW
+====================================================================
+
+HNSW = Hierarchical Navigable Small World.
+
+It is an approximate nearest-neighbor structure based on multiple
+graph layers.
+
+Conceptually:
+Higher layer:
+    sparse graph → coarse navigation
+
+Middle layers:
+    intermediate connectivity
+
+Layer 0:
+    dense graph → detailed candidate search
+
+Search:
+Query vector
+    ↓
+Entry point
+    ↓
+Highest layer
+    ↓
+Greedy navigation
+    ↓
+Cannot improve further
+    ↓
+Move down
+    ↓
+Continue
+    ↓
+Layer 0
+    ↓
+Candidate exploration
+    ↓
+Top-K
+
+Conceptual node:
+
+struct HNSWNode
+{
+    int id;
+    std::vector<float> embedding;
+    std::vector<std::vector<int>> neighbors;
+};
+
+Conceptual HNSWIndex:
+- entryPoint
+- maxLevel
+- M
+- efConstruction
+- efSearch
+- nodes
+
+Insertion conceptually:
+New embedding
+    ↓
+Select random maximum level
+    ↓
+Start from entry point
+    ↓
+Search upper layers
+    ↓
+Find promising neighborhood
+    ↓
+Descend
+    ↓
+Search candidate neighbors
+    ↓
+Select neighbors
+    ↓
+Connect node
+    ↓
+Update reciprocal connections
+    ↓
+Prune excessive connections
+    ↓
+Continue
+
+Search uses:
+- graph traversal
+- greedy movement
+- distance/similarity computation
+- candidate priority queues
+- result priority queues
+
+Parameters:
+M = graph connectivity
+efConstruction = construction/search effort during building
+efSearch = search effort
+
+These are empirical trade-offs.
+
+Core research question:
+"How much search latency can HNSW save while maintaining
+sufficiently high retrieval recall compared with exact
+brute-force search?"
+
+DSA concepts:
+- graphs
+- adjacency lists
+- weighted/similarity relationships
+- graph traversal
+- greedy algorithms
+- priority queues
+- heaps
+- hierarchical structures
+- nearest-neighbor search
+- approximate nearest-neighbor search
+- Top-K
+- complexity analysis
+
+====================================================================
+10. SEARCH ENGINE AND METADATA
+====================================================================
+
+SearchEngine owns system-level orchestration, not HNSW internals.
+
+Conceptual:
+SearchEngine
+├── QueryProcessor
+├── Embedding provider
+├── RetrievalIndex
+├── MetadataManager
+└── ResultFormatter
+
+Core query processing:
+raw query
+    ↓
+QueryProcessor
+    ↓
+validation / basic normalization
+    ↓
+CLIP text encoder
+    ↓
+query embedding
+
+Do not build a full NLP platform. CLIP supplies the primary semantic
+understanding.
+
+Complete flow:
+User query
+    ↓
+QueryProcessor
+    ↓
+CLIP text encoder
+    ↓
+Query embedding
+    ↓
+SearchEngine
+    ↓
+RetrievalIndex
+    ↓
+Top-K image IDs
+    ↓
+MetadataManager
+    ↓
+Image paths
+    ↓
+User-facing results
+
+The selected method can be:
+brute_force
+or:
+hnsw
+
+Conceptual result:
+struct SearchResult
+{
+    int imageId;
+    float score;
+    std::string imagePath;
+};
+
+Result objects should be independent of the retrieval algorithm.
+
+MetadataManager maps internal IDs to ImageRecords and paths.
+
+====================================================================
+11. INDEX LIFECYCLE AND PERSISTENCE
+====================================================================
+
+IndexManager responsibilities:
+build()
+save()
+load()
+validate()
+rebuild()
+
+Separate:
+HNSWIndex = search/index algorithm
+IndexManager = index lifecycle/persistence
+
+Persist:
+- image metadata
+- embeddings
+- HNSW index
+- configuration/version information
+
+Startup:
+Start
+  ↓
+Load metadata
+  ↓
+Load embeddings if required
+  ↓
+Load/build HNSW index
+  ↓
+Ready
+
+Avoid unnecessary repeated preprocessing.
+
+Conceptual ownership:
+MetadataManager owns metadata/ImageRecords
+EmbeddingStore owns image embeddings
+HNSWIndex owns graph/index data
+SearchEngine orchestrates/references components
+
+Minimize duplication of large embedding vectors.
+
+====================================================================
+12. BENCHMARKING AND EVALUATION
+====================================================================
+
+Compare:
+Brute Force vs HNSW
+
+For identical queries and embeddings.
+
+Primary metrics:
+1. Recall@5
+2. Recall@10
+3. Query latency
+4. Speedup
+5. Memory usage
+
+Supporting measurements may include:
+- index build time
+- throughput
+- average latency
+- parameter sensitivity
+
+For K=5:
+Recall@5 =
+    |Exact Top-5 ∩ HNSW Top-5|
+    ---------------------------
+              5
+
+Brute force establishes the exact reference set.
+
+Benchmark queries:
+evaluation/queries.txt
+
+Every algorithm receives exactly the same query set.
+
+For each query:
+1. Generate one query embedding.
+2. Use the SAME query embedding for both indexes.
+3. Run brute force.
+4. Run HNSW.
+5. Record latency.
+6. Record Top-K IDs.
+7. Calculate Recall@K.
+8. Aggregate results.
+
+Measure retrieval latency separately from neural embedding generation
+latency when possible.
+
+Speedup:
+Brute-force latency
+-------------------
+HNSW latency
+
+Evaluate multiple efSearch values, e.g.:
+20, 40, 80, 120
+
+Actual benchmark numbers must be measured. Illustrative values in
+the architecture are NOT project results.
+
+A useful analysis is the Recall@5 vs Latency trade-off.
+
+====================================================================
+13. REPOSITORY ARCHITECTURE
+====================================================================
+
+Recommended:
+
+semantic-image-retrieval/
+│
+├── README.md
+├── CMakeLists.txt
+│
+├── data/
+│   ├── raw/
+│   │   └── flickr30k/
+│   ├── processed/
+│   └── embeddings/
+│
+├── models/
+│
+├── config/
+│   └── config.json
+│
+├── include/
+│   ├── data/
+│   │   ├── DatasetManager.hpp
+│   │   ├── ImageRecord.hpp
+│   │   └── MetadataManager.hpp
+│   ├── embedding/
+│   │   ├── Embedding.hpp
+│   │   ├── EmbeddingStore.hpp
+│   │   └── Embedder.hpp
+│   ├── similarity/
+│   │   ├── VectorMath.hpp
+│   │   └── Similarity.hpp
+│   ├── index/
+│   │   ├── RetrievalIndex.hpp
+│   │   ├── BruteForceIndex.hpp
+│   │   ├── HNSWIndex.hpp
+│   │   └── HNSWNode.hpp
+│   ├── search/
+│   │   ├── SearchEngine.hpp
+│   │   ├── QueryProcessor.hpp
+│   │   └── SearchResult.hpp
+│   ├── benchmark/
+│   │   └── BenchmarkEngine.hpp
+│   └── persistence/
+│       └── IndexManager.hpp
+│
+├── src/
+│   ├── data/
+│   ├── embedding/
+│   ├── similarity/
+│   ├── index/
+│   ├── search/
+│   ├── benchmark/
+│   └── persistence/
+│
+├── tests/
+│   ├── test_vector_math.cpp
+│   ├── test_bruteforce.cpp
+│   ├── test_hnsw.cpp
+│   ├── test_metadata.cpp
+│   ├── test_persistence.cpp
+│   └── test_search_engine.cpp
+│
+├── evaluation/
+│   ├── queries.txt
+│   ├── results/
+│   └── benchmark_results/
+│
+└── scripts/
+    ├── download_dataset.py
+    ├── prepare_dataset.py
+    └── generate_embeddings.py
+
+====================================================================
+14. PYTHON/C++ BOUNDARY
+====================================================================
+
+Python is allowed for ML/data preparation.
+
+Python:
+- dataset preparation
+- CLIP inference
+- embedding generation
+
+C++:
+- vector storage
+- vector mathematics
+- brute-force search
+- HNSW
+- ranking
+- metadata lookup
+- persistence
+- benchmarking
+- system integration
+
+Recommended boundary:
+
+PYTHON
+    ↓
+Flickr30k image processing
+    ↓
+CLIP inference
+    ↓
+Image embeddings
+    ↓
+persistent embedding files
+    ↓
+C++
+
+Then:
+C++
+    ↓
+load embeddings
+    ↓
+exact search
+    ↓
+HNSW
+    ↓
+ranking
+    ↓
+benchmarking
+    ↓
+final search results
+
+Boundary must be defined and documented.
+
+====================================================================
+15. MEMORY AND OWNERSHIP
+====================================================================
+
+Large data:
+1. image metadata
+2. captions
+3. embeddings
+4. HNSW graph
+5. temporary candidate structures
+
+Conceptually:
+MEMORY
+    ├── Metadata
+    ├── Embeddings
+    └── HNSW
+            ↓
+       Search Engine
+
+Minimize unnecessary duplication.
+
+====================================================================
+16. CLASSES / STL / C++
+====================================================================
+
+Classes:
+DatasetManager
+ImageRecord
+MetadataManager
+EmbeddingStore
+VectorMath
+SimilarityEngine
+RetrievalIndex
+BruteForceIndex
+HNSWIndex
+HNSWNode
+SearchEngine
+QueryProcessor
+SearchResult
+IndexManager
+BenchmarkEngine
+
+OOP:
+- encapsulation
+- abstraction
+- composition
+- inheritance/polymorphism where appropriate
+
+STL likely:
+std::vector
+std::string
+std::unordered_map
+std::unordered_set
+std::priority_queue
+std::filesystem
+std::unique_ptr
+std::shared_ptr where justified
+std::sort
+std::lower_bound where appropriate
+std::chrono
+
+Other C++:
+- references
+- pointers where needed
+- RAII
+- move semantics
+- file I/O
+- binary I/O
+- exception handling
+- templates where appropriate
+- CMake
+- unit testing
+- benchmarking
+
+Do not use STL blindly. For the PBL explanation, identify which
+algorithmic responsibilities are ours and which are library facilities.
+
+====================================================================
+17. ERROR HANDLING
+====================================================================
+
+Detect/report:
+- missing image
+- corrupt image
+- missing captions
+- duplicate IDs
+- wrong embedding dimension
+- invalid numeric values
+- empty query
+- invalid K
+- missing index
+- corrupted index file
+
+Do not silently insert invalid embeddings.
+
+====================================================================
+18. TESTING
+====================================================================
+
+Test bottom-up:
+
+VectorMath
+↓
+Cosine similarity
+↓
+Top-K
+↓
+Metadata
+↓
+Brute Force
+↓
+HNSW
+↓
+Persistence
+↓
+Search Engine
+
+Integration:
+Query
+↓
+Query embedding
+↓
+Search
+↓
+Image IDs
+↓
+Metadata
+↓
+Image paths
+↓
+Results
+
+DO NOT immediately test a new HNSW implementation on all 31k images.
+
+First use a tiny synthetic dataset, e.g. 10 vectors.
+
+Compare:
+Brute Force vs HNSW
+
+If HNSW is incorrect on controlled data, debug before using the
+full Flickr30k collection.
+
+====================================================================
+19. IMPLEMENTATION ORDER
+====================================================================
+
+Phase 1: Dataset
+- download Flickr30k
+- verify files
+- organize raw dataset
+- parse captions
+- create metadata records
+
+Phase 2: Image preprocessing
+- OpenCV
+- valid CLIP input
+
+Phase 3: Embeddings
+- CLIP
+- image embeddings
+- save embeddings
+
+Phase 4: C++ vector layer
+- load embeddings
+- vector math
+- normalization
+- cosine similarity
+
+Phase 5: Brute force
+- query vector
+- compare all vectors
+- Top-K heap
+- exact results
+
+Phase 6: Baseline benchmark
+- latency
+- memory
+- exact reference
+
+Phase 7: HNSW
+- node
+- graph
+- insertion
+- traversal
+- priority queues
+- search
+- Top-K
+
+Phase 8: HNSW correctness
+- synthetic vectors
+- brute force
+- HNSW
+- compare
+
+Phase 9: Real dataset
+- Flickr30k embeddings
+- HNSW construction
+- query
+- Top-K
+
+Phase 10: Exact vs approximate evaluation
+- same queries
+- Recall@5
+- Recall@10
+- latency
+- speedup
+- memory
+
+Phase 11: Persistence
+- save index
+- load index
+- validate index
+
+Phase 12: SearchEngine
+- QueryProcessor
+- Embedder
+- RetrievalIndex
+- MetadataManager
+- ResultFormatter
+
+Phase 13: User interface
+- simple CLI/basic UI
+
+Only after core stability:
+- query expansion
+- YOLO object metadata
+- hybrid scoring
+- second-stage reranking
+- other research upgrades
+
+====================================================================
+20. OUT OF SCOPE UNTIL CORE IS COMPLETE
+====================================================================
+
+Do NOT make these mandatory dependencies:
+- query expansion
+- YOLO
+- hybrid semantic/object scoring
+- second-stage reranking
+- image-to-image search
+- OCR
+- relevance feedback
+
+Possible future architecture:
+IMAGE
+  ├── CLIP → global semantic representation
+  └── YOLO → object labels
+       ↓
+  hybrid retrieval
+
+Possible future reranking:
+31k images
+    ↓
+HNSW
+    ↓
+Top-50 candidates
+    ↓
+more accurate scoring
+    ↓
+final Top-5
+
+These are upgrades, not core requirements.
+
+====================================================================
+21. MINIMUM SUCCESSFUL DEMONSTRATION
+====================================================================
+
+User enters:
+"a dog playing in snow"
+
+Show:
+Brute Force → Top-5
+HNSW → Top-5
+
+Then:
+- brute-force latency
+- HNSW latency
+- Recall@5
+- speedup
+
+The academic question is:
+
+"Can graph-based approximate nearest-neighbor retrieval using HNSW
+significantly reduce semantic image-search latency while maintaining
+high retrieval recall compared with exact brute-force search?"
+
+The project should NOT claim novelty merely because it uses CLIP.
+
+Its value is the complete retrieval-engine design:
+1. real-world Flickr30k
+2. CLIP semantic representation
+3. C++ exact retrieval
+4. C++/DSA HNSW
+5. HNSW parameter tuning
+6. metadata indexing
+7. persistent embeddings/indexes
+8. exact-vs-approximate benchmarking
+9. Recall/latency analysis
+
+====================================================================
+22. CORE PRINCIPLES
+====================================================================
+
+1. Separate offline indexing from online querying.
+2. CLIP provides semantic representation; it is NOT the retrieval engine.
+3. OpenCV handles image preprocessing; it is NOT semantic search.
+4. Brute Force provides exact retrieval and ground truth.
+5. HNSW provides approximate nearest-neighbor retrieval.
+6. The same RetrievalIndex abstraction supports both.
+7. HNSW quality is measured against exact search.
+8. Metadata is separate from vector storage.
+9. Embeddings are generated offline and persisted.
+10. The system is modular so components can be replaced independently.
+11. C++ owns the core retrieval/DSA infrastructure.
+12. Future features must not destabilize the core architecture.
+
+====================================================================
+23. COMPONENT ROLES
+====================================================================
+
+FLICKR30K:
+realistic images and natural-language captions.
+
+CLIP:
+shared semantic embedding space for images and text.
+
+OPENCV:
+image loading and preprocessing.
+
+VECTOR MATH:
+similarity calculations.
+
+BRUTE FORCE:
+exact nearest-neighbor retrieval.
+
+HNSW:
+approximate graph-based nearest-neighbor retrieval.
+
+PRIORITY QUEUE / HEAP:
+Top-K management and HNSW candidate exploration.
+
+HASH TABLE:
+fast ID/metadata mapping.
+
+METADATA MANAGER:
+maps vector IDs to actual image information.
+
+SEARCH ENGINE:
+connects components into the query pipeline.
+
+INDEX MANAGER:
+index persistence and lifecycle.
+
+BENCHMARK ENGINE:
+recall, latency, memory, speedup.
+
+C++:
+core retrieval infrastructure.
+
+DSA:
+algorithmic machinery behind retrieval.
+
+====================================================================
+24. AGENT IMPLEMENTATION ORDER
+====================================================================
+
+ALL CODING AGENTS MUST FOLLOW THIS ORDER.
+
+STEP 1:
+Dataset ingestion
+
+STEP 2:
+Metadata model
+
+STEP 3:
+Image preprocessing
+
+STEP 4:
+CLIP embedding generation
+
+STEP 5:
+Embedding persistence
+
+STEP 6:
+VectorMath
+
+STEP 7:
+cosine similarity
+
+STEP 8:
+Top-K implementation
+
+STEP 9:
+BruteForceIndex
+
+STEP 10:
+RetrievalIndex abstraction
+
+STEP 11:
+HNSWNode
+
+STEP 12:
+HNSW graph structure
+
+STEP 13:
+HNSW insertion
+
+STEP 14:
+HNSW search
+
+STEP 15:
+HNSW correctness tests
+
+STEP 16:
+Real Flickr30k HNSW index
+
+STEP 17:
+SearchEngine
+
+STEP 18:
+Metadata integration
+
+STEP 19:
+Persistence
+
+STEP 20:
+BenchmarkEngine
+
+STEP 21:
+Exact vs HNSW evaluation
+
+STEP 22:
+CLI/basic interface
+
+Only after the core is stable:
+Step 23: query expansion
+Step 24: YOLO object metadata
+Step 25: hybrid scoring
+Step 26: second-stage reranking
+Step 27: additional research upgrades
+
+CORE COMPLETION CRITERIA:
+
+Flickr30k
+    ↓
+CLIP image embeddings
+    ↓
+C++ embedding store
+    ↓
+C++ brute-force retrieval
+    ↓
+C++ HNSW retrieval
+    ↓
+natural-language query
+    ↓
+Top-K results
+    ↓
+metadata → actual images
+    ↓
+benchmark
+    ↓
+Recall + latency + speedup + memory

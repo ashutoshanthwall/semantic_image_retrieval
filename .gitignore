@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+cmake-build-*/
+*.o
+*.obj
+*.so
+*.dll
+*.a
+*.lib
+
+# IDE
+.idea/
+.vscode/
+
+# ML models / weights
+models/*
+!models/.gitkeep
+
+# Raw dataset
+data/raw/*
+!data/raw/.gitkeep
+
+# Generated data
+data/processed/*
+!data/processed/.gitkeep
+
+data/embeddings/*
+!data/embeddings/.gitkeep
+
+# Evaluation output
+evaluation/results/*
+!evaluation/results/.gitkeep
+
+evaluation/benchmark_results/*
+!evaluation/benchmark_results/.gitkeep
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
