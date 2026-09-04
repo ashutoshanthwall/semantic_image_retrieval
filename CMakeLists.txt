@@ -44,10 +44,11 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR})
 
 # ---------------------------------------------------------------------------
-# Phase 1 library: data ingestion
+# Data library: Phase 1 (ingestion) + Phase 2 (metadata)
 # ---------------------------------------------------------------------------
 add_library(sir_data
     src/data/DatasetManager.cpp
+    src/data/MetadataManager.cpp
 )
 target_include_directories(sir_data PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -63,7 +64,15 @@ add_executable(test_dataset_manager
 target_link_libraries(test_dataset_manager PRIVATE sir_data)
 
 # ---------------------------------------------------------------------------
-# CTest integration (optional — run via: ctest --output-on-failure)
+# Phase 2 test executable
+# ---------------------------------------------------------------------------
+add_executable(test_metadata
+    tests/test_metadata.cpp
+)
+target_link_libraries(test_metadata PRIVATE sir_data)
+
+# ---------------------------------------------------------------------------
+# CTest integration (run via: ctest --output-on-failure)
 # ---------------------------------------------------------------------------
 enable_testing()
 
@@ -72,7 +81,15 @@ add_test(
     COMMAND test_dataset_manager
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
-# Pass the project root so the test binary can locate the dataset.
 set_tests_properties(DatasetManagerIntegration PROPERTIES
+    ENVIRONMENT "SIR_PROJECT_ROOT=${CMAKE_SOURCE_DIR}"
+)
+
+add_test(
+    NAME MetadataManagerTests
+    COMMAND test_metadata
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(MetadataManagerTests PROPERTIES
     ENVIRONMENT "SIR_PROJECT_ROOT=${CMAKE_SOURCE_DIR}"
 )
