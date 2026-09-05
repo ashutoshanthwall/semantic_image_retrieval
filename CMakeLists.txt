@@ -44,7 +44,15 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR})
 
 # ---------------------------------------------------------------------------
+# OpenCV (Phase 3: image preprocessing)
+# Only core, imgproc, imgcodecs are needed for Step 3.
+# sir_data deliberately has NO OpenCV dependency.
+# ---------------------------------------------------------------------------
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+
+# ---------------------------------------------------------------------------
 # Data library: Phase 1 (ingestion) + Phase 2 (metadata)
+# No OpenCV dependency: sir_data uses only STL + nlohmann/json.
 # ---------------------------------------------------------------------------
 add_library(sir_data
     src/data/DatasetManager.cpp
@@ -72,6 +80,30 @@ add_executable(test_metadata
 target_link_libraries(test_metadata PRIVATE sir_data)
 
 # ---------------------------------------------------------------------------
+# Preprocessing library: Phase 3, Step 3
+# Separate from sir_data so Phase 1/2 targets stay free of OpenCV linkage.
+# ---------------------------------------------------------------------------
+add_library(sir_preprocessing
+    src/data/ImagePreprocessor.cpp
+)
+target_include_directories(sir_preprocessing PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(sir_preprocessing PUBLIC
+    sir_data
+    ${OpenCV_LIBS}
+)
+
+# ---------------------------------------------------------------------------
+# Phase 3 test executable
+# ---------------------------------------------------------------------------
+add_executable(test_image_preprocessor
+    tests/test_image_preprocessor.cpp
+)
+target_link_libraries(test_image_preprocessor PRIVATE sir_preprocessing)
+
+# ---------------------------------------------------------------------------
 # CTest integration (run via: ctest --output-on-failure)
 # ---------------------------------------------------------------------------
 enable_testing()
@@ -91,5 +123,14 @@ add_test(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 set_tests_properties(MetadataManagerTests PROPERTIES
+    ENVIRONMENT "SIR_PROJECT_ROOT=${CMAKE_SOURCE_DIR}"
+)
+
+add_test(
+    NAME ImagePreprocessorTests
+    COMMAND test_image_preprocessor
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(ImagePreprocessorTests PROPERTIES
     ENVIRONMENT "SIR_PROJECT_ROOT=${CMAKE_SOURCE_DIR}"
 )
