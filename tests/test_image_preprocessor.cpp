@@ -37,6 +37,7 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -407,6 +408,98 @@ int main(int /*argc*/, char** /*argv*/) {
         // Clean up
         if (fs::exists(synthPath)) fs::remove(synthPath);
         if (fs::exists(synthPath2)) fs::remove(synthPath2);
+    }
+
+    // =========================================================================
+    // G. Manifest generation
+    // =========================================================================
+    std::cout << "\n--- G. Manifest generation ---\n";
+    {
+        const fs::path manifestPath = projRoot / "data/processed/valid_ids.txt";
+        fs::create_directories(manifestPath.parent_path());
+        if (fs::exists(manifestPath)) fs::remove(manifestPath);
+
+        // Process 'sample' which has valid images, plus one invalid record.
+        std::vector<sir::ImageRecord> testRecords = sample;
+        sir::ImageRecord badRec;
+        badRec.internalId = 999;
+        badRec.imageId = "bad_image_G";
+        badRec.filePath = (projRoot / "data/raw/flickr30k/flickr30k-images/nonexistent_G.jpg").string();
+        testRecords.push_back(badRec);
+
+        sir::PreprocessingReport report;
+        std::vector<sir::PreprocessedImage> results =
+            preprocessor.processRecords(testRecords, report, false, manifestPath.string());
+
+        CHECK(fs::exists(manifestPath), "G1: Manifest file was created");
+        
+        if (fs::exists(manifestPath)) {
+            std::ifstream ifs(manifestPath);
+            std::string line;
+            std::vector<std::string> lines;
+            while (std::getline(ifs, line)) {
+                if (!line.empty()) lines.push_back(line);
+            }
+            
+            CHECK(lines.size() == sample.size() + 1, "G2: Manifest has expected number of lines (header + valid)");
+            if (lines.size() >= 2) {
+                CHECK(lines[0] == "imageId\tfilename", "G3: Manifest header is correct");
+                std::string expectedFirst = sample[0].imageId + "\t" + fs::path(sample[0].filePath).filename().string();
+                CHECK(lines[1] == expectedFirst, "G4: First entry matches expected format");
+            }
+            
+            bool badFound = false;
+            for (const auto& l : lines) {
+                if (l.find("bad_image_G") != std::string::npos) badFound = true;
+            }
+            CHECK(!badFound, "G5: Invalid image is excluded from manifest");
+        }
+
+        bool caughtError = false;
+        try {
+            preprocessor.processRecords(sample, report, false, "/invalid_dir_that_does_not_exist/valid_ids.txt");
+        } catch (const std::runtime_error&) {
+            caughtError = true;
+        }
+        CHECK(caughtError, "G6: Throws runtime_error on invalid manifest path");
+
+        if (fs::exists(manifestPath)) fs::remove(manifestPath);
+    }
+
+    // =========================================================================
+    // H. Grayscale and RGBA handling
+    // =========================================================================
+    std::cout << "\n--- H. Grayscale and RGBA handling ---\n";
+    {
+        const fs::path grayPath = projRoot / "data/raw/synthetic_gray.png";
+        const fs::path rgbaPath = projRoot / "data/raw/synthetic_rgba.png";
+
+        cv::Mat grayMat(224, 224, CV_8UC1, cv::Scalar(128));
+        cv::imwrite(grayPath.string(), grayMat);
+
+        cv::Mat rgbaMat(224, 224, CV_8UC4, cv::Scalar(192, 64, 128, 255));
+        cv::imwrite(rgbaPath.string(), rgbaMat);
+
+        sir::PreprocessedImage outGray;
+        std::string reasonGray;
+        bool okGray = preprocessor.preprocessOne(grayPath.string(), 200, outGray, reasonGray);
+        CHECK(okGray, "H1: Grayscale image processed successfully");
+        if (okGray) {
+            CHECK(outGray.mat.channels() == 3, "H2: Grayscale converted to 3 channels");
+            const float expR = (128.0f / 255.0f - sir::ImagePreprocessor::kMeanR) / sir::ImagePreprocessor::kStdR;
+            CHECK(std::abs(outGray.mat.at<cv::Vec3f>(0,0)[0] - expR) <= 1e-5f, "H3: Grayscale values normalized correctly");
+        }
+
+        sir::PreprocessedImage outRgba;
+        std::string reasonRgba;
+        bool okRgba = preprocessor.preprocessOne(rgbaPath.string(), 201, outRgba, reasonRgba);
+        CHECK(okRgba, "H4: RGBA image processed successfully");
+        if (okRgba) {
+            CHECK(outRgba.mat.channels() == 3, "H5: RGBA converted to 3 channels (alpha dropped)");
+        }
+
+        if (fs::exists(grayPath)) fs::remove(grayPath);
+        if (fs::exists(rgbaPath)) fs::remove(rgbaPath);
     }
 
     // =========================================================================

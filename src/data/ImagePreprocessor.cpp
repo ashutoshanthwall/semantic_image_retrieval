@@ -3,6 +3,8 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -161,11 +163,23 @@ bool ImagePreprocessor::preprocessOne(const std::string& filePath,
 std::vector<PreprocessedImage>
 ImagePreprocessor::processRecords(const std::vector<ImageRecord>& records,
                                    PreprocessingReport&            outReport,
-                                   bool                            verbose) const
+                                   bool                            verbose,
+                                   const std::string&              manifestPath) const
 {
     outReport = PreprocessingReport{};
     std::vector<PreprocessedImage> results;
     results.reserve(records.size());
+
+    // Optional manifest output file.
+    std::ofstream manifestFile;
+    if (!manifestPath.empty()) {
+        manifestFile.open(manifestPath);
+        if (!manifestFile.is_open()) {
+            throw std::runtime_error("Cannot open manifest path for writing: " + manifestPath);
+        }
+        // Write a simple header
+        manifestFile << "imageId\tfilename\n";
+    }
 
     for (const ImageRecord& rec : records) {
         ++outReport.totalAttempted;
@@ -176,6 +190,12 @@ ImagePreprocessor::processRecords(const std::vector<ImageRecord>& records,
         if (preprocessOne(rec.filePath, rec.internalId, img, reason)) {
             ++outReport.successCount;
             results.push_back(std::move(img));
+
+            // Write to manifest if enabled. We extract the filename to keep it portable.
+            if (manifestFile.is_open()) {
+                std::filesystem::path p(rec.filePath);
+                manifestFile << rec.imageId << '\t' << p.filename().string() << '\n';
+            }
         } else {
             // Determine failure category from the reason string / Mat state.
             // applyPipeline sets the reason; imread failure is caught in
@@ -197,6 +217,10 @@ ImagePreprocessor::processRecords(const std::vector<ImageRecord>& records,
                           << "): " << reason << '\n';
             }
         }
+    }
+
+    if (manifestFile.is_open()) {
+        manifestFile.close();
     }
 
     return results;

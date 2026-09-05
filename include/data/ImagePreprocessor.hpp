@@ -142,21 +142,26 @@ public:
     //
     // For each record: calls preprocessOne(record.filePath, record.internalId).
     //   - Success  -> appended to the returned vector; successCount incremented.
+    //                 If manifestPath is provided, the record's imageId and
+    //                 filename are written to the manifest.
     //   - Failure  -> NOT appended; appropriate failure counter incremented;
     //                 if verbose, the failure is logged to std::cerr.
     //
     // The order of successful results in the output vector matches the order
     // of their source records in `records`.  internalIds are never changed.
     //
-    // @param records   Records from DatasetManager (width/height may be 0).
-    // @param verbose   Print per-image failures to std::cerr.
-    // @param outReport Filled with exact per-category counts.
-    // @return          PreprocessedImages for every successfully processed record.
+    // @param records      Records from DatasetManager (width/height may be 0).
+    // @param outReport    Filled with exact per-category counts.
+    // @param verbose      Print per-image failures to std::cerr.
+    // @param manifestPath Optional path to write a persistent manifest of valid IDs.
+    // @return             PreprocessedImages for every successfully processed record.
+    // @throws std::runtime_error if manifestPath is non-empty but cannot be written.
     // -----------------------------------------------------------------------
     std::vector<PreprocessedImage> processRecords(
         const std::vector<ImageRecord>& records,
         PreprocessingReport&            outReport,
-        bool                            verbose = false) const;
+        bool                            verbose = false,
+        const std::string&              manifestPath = "") const;
 };
 
 }  // namespace sir
